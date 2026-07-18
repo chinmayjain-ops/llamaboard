@@ -1,0 +1,30 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode (if a project is added later)
+*.xcodeproj
+xcuserdata/
+DerivedData/
+
+# macOS
+.DS_Store
+
+# Models never belong in the repo
+*.gguf
+
+# Local tooling output
+graphify-out/
+
+# Agent & Tool Workspaces
+.claude/
+.gemini/
+
+# IDEs
+.vscode/
+.idea/
+
+# Personal files
+Job_Application_Tracker.xlsx
+.firecrawl/
