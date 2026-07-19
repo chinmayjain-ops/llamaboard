@@ -279,7 +279,11 @@ public final class DownloadManager: NSObject, ObservableObject {
     }
 
     private final class Delegate: NSObject, URLSessionDownloadDelegate {
-        weak var manager: DownloadManager?
+        // URLSession delegate protocols are Sendable, which forbids mutable
+        // stored properties. This is safe because the session's delegateQueue
+        // runs on the main queue, so every access below is main-actor bound —
+        // hence the MainActor.assumeIsolated in each callback.
+        nonisolated(unsafe) weak var manager: DownloadManager?
         init(manager: DownloadManager) { self.manager = manager }
 
         private func id(of task: URLSessionTask) -> UUID? {
