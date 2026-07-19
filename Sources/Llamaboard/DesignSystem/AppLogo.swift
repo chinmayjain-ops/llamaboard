@@ -4,7 +4,10 @@ import SwiftUI
 /// The Stitch-designed llama glass-tile logo, bundled as a resource.
 /// Used for the Dock icon and the sidebar brand mark.
 enum AppLogo {
-    static let image: NSImage? = {
+    // NSImage isn't Sendable; this is only ever read from the app delegate and
+    // SwiftUI bodies, so pin it to the main actor rather than opting out of
+    // concurrency checking.
+    @MainActor static let image: NSImage? = {
         guard let url = Bundle.module.url(forResource: "AppLogo", withExtension: "png") else { return nil }
         return NSImage(contentsOf: url)
     }()
