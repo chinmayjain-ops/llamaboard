@@ -11,20 +11,15 @@ DerivedData/
 # macOS
 .DS_Store
 
-# Models never belong in the repo
+# Model weights are never committed
 *.gguf
 
-# Local tooling output
-graphify-out/
-
-# Agent & Tool Workspaces
-.claude/
-.gemini/
-
-# IDEs
+# Editors
 .vscode/
 .idea/
 
-# Personal files
-Job_Application_Tracker.xlsx
+# Local tooling and agent workspaces
+.claude/
+.gemini/
 .firecrawl/
+graphify-out/
