@@ -29,6 +29,10 @@ final class AppState: ObservableObject {
     @Published var inspectorVisible = true
     @Published var showSettings = false
     @Published var searchQuery = ""
+    /// Repository whose quantization picker is open, if any.
+    @Published var quantPickerTarget: HFSearchResult?
+    /// Debug seam: pre-fetched quant files for `--quant-picker` snapshots.
+    var quantPickerPreload: [HFHub.QuantFile]?
 
     // MARK: Selection & settings
     @Published var selectedModelID: LibraryModel.ID?

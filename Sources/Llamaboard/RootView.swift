@@ -1,4 +1,5 @@
 import SwiftUI
+import LlamaboardKit
 
 /// Assembles the Tahoe-style floating layout: a dark ambient background with a glass
 /// sidebar, main content area (with the floating top pill overlaid), and an optional
@@ -25,6 +26,9 @@ struct RootView: View {
 
             if app.showSettings {
                 settingsOverlay
+            }
+            if let target = app.quantPickerTarget {
+                quantPickerOverlay(target)
             }
         }
         .frame(minWidth: 1120, minHeight: 720)
@@ -72,6 +76,15 @@ struct RootView: View {
                            center: .init(x: 0.95, y: 0.9), startRadius: 0, endRadius: 600)
         }
         .ignoresSafeArea()
+    }
+
+    private func quantPickerOverlay(_ target: HFSearchResult) -> some View {
+        ZStack {
+            Color.black.opacity(0.6).ignoresSafeArea()
+                .onTapGesture { app.quantPickerTarget = nil }
+            QuantPickerSheet(result: target, preloaded: app.quantPickerPreload)
+        }
+        .transition(.opacity)
     }
 
     private var settingsOverlay: some View {

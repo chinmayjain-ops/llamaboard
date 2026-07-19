@@ -29,18 +29,13 @@ public struct HFSearchResult: Identifiable, Sendable, Equatable {
         repo.split(separator: "/").last.map(String.init) ?? repo
     }
 
-    /// Quantizations available in the repo, ordered smallest-first by name,
-    /// derived from the filenames (e.g. ["Q4_K_M", "Q8_0"]).
+    /// Quantizations available in the repo, derived from the filenames
+    /// (e.g. ["Q4_K_M", "Q8_0"]).
     public var quantTags: [String] {
-        let known = Set(GGUFReader.fileTypeNames.values)
         var found: [String] = []
         for file in ggufFiles {
-            let upper = file.uppercased()
-            // Longest names first so Q4_K_M wins over Q4_K.
-            for quant in known.sorted(by: { $0.count > $1.count })
-            where upper.contains(quant) && !found.contains(quant) {
-                found.append(quant)
-                break
+            if let tag = HFHub.quantTag(fromFileName: file), !found.contains(tag) {
+                found.append(tag)
             }
         }
         return found.sorted()
@@ -168,6 +163,83 @@ extension HFHub {
                 lastModified: (entry["lastModified"] as? String).flatMap(parseISODate),
                 ggufFiles: files)
         }
+    }
+
+    /// One downloadable GGUF in a repository, with the size the hub reports.
+    public struct QuantFile: Identifiable, Sendable, Equatable {
+        public var id: String { fileName }
+        public let fileName: String      // path within the repo
+        public let quant: String?        // detected tag, e.g. "Q4_K_M"
+        public let sizeBytes: Int64
+        public let isSplit: Bool
+
+        public init(fileName: String, quant: String?, sizeBytes: Int64, isSplit: Bool) {
+            self.fileName = fileName
+            self.quant = quant
+            self.sizeBytes = sizeBytes
+            self.isSplit = isSplit
+        }
+
+        /// Label for the picker: the quant tag when known, else the file name.
+        public var label: String {
+            quant ?? (fileName as NSString).lastPathComponent
+        }
+    }
+
+    /// List every GGUF in a repo with its exact size.
+    ///
+    /// `?blobs=true` returns sizes for all files in a single request, so the
+    /// picker needs no per-file HEAD requests.
+    public static func quantFiles(repo: String) async throws -> [QuantFile] {
+        let url = URL(string: "https://huggingface.co/api/models/\(repo)?blobs=true")!
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            throw http.statusCode == 429 ? HFSearchError.rateLimited : HFSearchError.http(http.statusCode)
+        }
+        return try parseQuantFiles(data)
+    }
+
+    /// Extract the quantization token from a GGUF filename.
+    ///
+    /// Read from the filename rather than matched against llama.cpp's ftype
+    /// list, because repos publish variants that list doesn't contain —
+    /// ARM-tuned `Q4_0_4_4`, "large embedding" `Q2_K_L`, `Q3_K_XL` and so on.
+    /// Matching the known list alone would label all four `Q4_0_*` files
+    /// identically.
+    public static func quantTag(fromFileName name: String) -> String? {
+        let stem = ((name as NSString).lastPathComponent as NSString).deletingPathExtension
+        let pattern = #"(?:^|[-_.])(IQ\d+(?:_[A-Z0-9]+)*|Q\d+(?:_[A-Z0-9]+)*|BF16|F16|F32)(?:$|[-_.])"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let range = NSRange(stem.startIndex..., in: stem)
+        // Take the last match: the quant sits at the end of conventional names.
+        guard let match = regex.matches(in: stem, range: range).last,
+              let tokenRange = Range(match.range(at: 1), in: stem) else { return nil }
+        return String(stem[tokenRange]).uppercased()
+    }
+
+    /// Decode a `?blobs=true` payload into sized quantization entries.
+    /// Pure, so it can be tested against a captured response.
+    public static func parseQuantFiles(_ data: Data) throws -> [QuantFile] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let siblings = json["siblings"] as? [[String: Any]] else {
+            throw HFSearchError.malformedResponse
+        }
+        return siblings.compactMap { entry -> QuantFile? in
+            guard let name = entry["rfilename"] as? String,
+                  name.lowercased().hasSuffix(".gguf") else { return nil }
+            let size = (entry["size"] as? NSNumber)?.int64Value ?? 0
+            let isSplit = name.range(of: #"-\d{5}-of-\d{5}"#, options: .regularExpression) != nil
+            return QuantFile(fileName: name, quant: quantTag(fromFileName: name),
+                             sizeBytes: size, isSplit: isSplit)
+        }
+        // Split archives list every shard; keep only the first so the picker
+        // shows one row per model rather than N confusing parts.
+        .filter { !$0.isSplit || $0.fileName.contains("-00001-of-") }
+        .sorted { $0.sizeBytes < $1.sizeBytes }
     }
 
     static func parseISODate(_ string: String) -> Date? {

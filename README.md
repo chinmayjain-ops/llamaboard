@@ -39,7 +39,7 @@ Llamaboard is the third option:
 ## What it does
 
 - 📚 **Model Library** — scans a folder of plain GGUF files, parses headers natively (architecture, params, quant, context, layers) *without loading the model*, with search, size/parameter/fit filters, and a Fits-VRAM badge per model based on your unified memory.
-- 🔎 **Search Hugging Face** — browse GGUF repositories from the toolbar (trending / downloads / likes / recent), with download counts, available quantizations, gated-license and split-file warnings, and one-click download.
+- 🔎 **Search Hugging Face** — browse GGUF repositories from the toolbar (trending / downloads / likes / recent), then pick a quantization from a table showing each file's real size, estimated memory, and whether it fits *your* Mac — with the sweet-spot quant recommended.
 - ⬇️ **Paste-to-download** — or paste the `llama serve -hf owner/repo:QUANT` command straight from any Hugging Face model page (a bare repo ref or page URL works too) and Llamaboard resolves the right GGUF — same quant-matching rules as llama.cpp — with progress, speed, ETA, and pause/resume/cancel.
 - 🎛 **Per-model settings** — context size, temperature, full sampler set (top-k/top-p/min-p/repeat penalty), system prompt, GPU layers, KV-cache types, flash attention, port, plus a free-text escape hatch for any other flag. Stored as human-readable JSON. The UI tells you which settings apply live and which need a model restart.
 - ⚡️ **One-click serve** — spawns and supervises `llama-server` (Metal), with health checks, live logs, and guaranteed teardown — no orphaned processes, ever.
@@ -50,7 +50,8 @@ Llamaboard is the third option:
 
 <div align="center">
 <img src="docs/screenshots/library.png" width="410" alt="Model Library" /> <img src="docs/screenshots/discover-search.png" width="410" alt="Hugging Face search" />
-<img src="docs/screenshots/server.png" width="410" alt="Server telemetry" /> <img src="docs/screenshots/apps.png" width="410" alt="App Control" />
+<img src="docs/screenshots/quant-picker.png" width="410" alt="Quantization picker" /> <img src="docs/screenshots/server.png" width="410" alt="Server telemetry" />
+<img src="docs/screenshots/apps.png" width="410" alt="App Control" />
 <img src="docs/screenshots/settings.png" width="410" alt="Settings" />
 </div>
 
@@ -87,6 +88,7 @@ We'd rather under-promise. Everything below is labeled by how it was verified.
 | Library management | Folder scan + live file watching, import via Open panel, delete with confirmation, relocatable models folder (Settings) |
 | Library search & filters | Live text search plus a filter popover (file size, parameter count, fits-in-memory) with active-filter badge and combined empty states |
 | Hugging Face search | Debounced, cached hub search with four sort orders — live-verified against the real API; results show downloads, likes, GGUF count, available quants, gated and split-file warnings |
+| Quantization picker | Per-file sizes from the hub, estimated memory and fit verdict for your Mac, and a recommended quant (Q4_K_M sweet spot, or the largest when the model is small relative to memory) — verified live on 135M and 8B repos |
 | Paste-to-download | Parsed `llama serve -hf repo:QUANT` verbatim from HF's dialog → resolved via the hub API → 144 MB download completed with live progress/speed/ETA, pause/resume/cancel, auto-import into the Library |
 | Settings profiles | Per-model JSON persistence, restart-vs-live distinction with an explicit "server is running with X — restart to apply Y" notice, context slider clamped to model max |
 | Inspector tabs | Model (memory/config/telemetry), Inference (full sampler set + system prompt editor), System (hardware, endpoint, paths) |
@@ -97,7 +99,7 @@ We'd rather under-promise. Everything below is labeled by how it was verified.
 | App Control: Hermes | Detection, launch, and **automatic provider configuration** (`~/.hermes/config.yaml` rewrite with backup) — confirmed end-to-end with inference through the local model |
 | Model alias | `/v1/models` advertises a clean model name via `--alias` |
 | Branding | Stitch-designed llama glass icon as Dock icon + sidebar mark |
-| Test suite | 58 assert-based unit test checks + a headless smoke test (parse → serve → chat → measured-telemetry checks → teardown) |
+| Test suite | 82 assert-based unit test checks + a headless smoke test (parse → serve → chat → measured-telemetry checks → teardown) |
 
 ### ⚠️ Present but NOT yet confirmed / known limitations
 
@@ -121,7 +123,7 @@ We'd rather under-promise. Everything below is labeled by how it was verified.
 
 Driven by [PRD.md](PRD.md) — the full product spec lives in the repo and is part of the project.
 
-- [ ] **Beta 2:** quantization picker with per-file sizes and RAM fit, HF token for gated repos, split-GGUF downloads, chat persistence (SQLite), bundled llama.cpp runtime with in-app updates
+- [ ] **Beta 2:** HF token for gated repos, split-GGUF downloads, chat persistence (SQLite), bundled llama.cpp runtime with in-app updates
 - [ ] **v1.0:** Bench panel (llama-bench UI with history), menu bar mode, signed + notarized `.app`, per-conversation setting overrides, "copy as command"
 - [ ] **Later:** multimodal (mmproj), LoRA adapters, multiple concurrent models, LAN serving, MLX backend
 

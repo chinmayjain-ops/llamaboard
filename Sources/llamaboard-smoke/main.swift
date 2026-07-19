@@ -16,6 +16,40 @@ func fail(_ message: String) -> Never {
 
 let arguments = CommandLine.arguments
 
+/// `llamaboard-smoke --hf-quants <repo>` lists a repo's quantizations with the
+/// sizes, memory estimates, and fit verdicts the picker shows.
+if let quantIndex = arguments.firstIndex(of: "--hf-quants"), arguments.count > quantIndex + 1 {
+    let repo = arguments[quantIndex + 1]
+    Task { @MainActor in
+        do {
+            let files = try await HFHub.quantFiles(repo: repo)
+            guard !files.isEmpty else { fail("no GGUF files in \(repo)") }
+            let context: UInt64 = 4096
+            let pick = HardwareInfo.recommendedQuant(from: files, contextTokens: context)
+            print("── \(repo): \(files.count) entries " +
+                  "(budget \(String(format: "%.0f", Double(HardwareInfo.gpuBudget) / 1_073_741_824)) GB, ctx \(context))")
+            for f in files {
+                let fit = HardwareInfo.fit(fileSize: UInt64(f.sizeBytes), metadata: nil, contextTokens: context)
+                let ram = HardwareInfo.estimatedRAM(fileSize: UInt64(f.sizeBytes), metadata: nil, contextTokens: context)
+                let mark = f.id == pick?.id ? " ← RECOMMENDED" : ""
+                print(String(format: "   %-14s %8.2f GB  %-9s %-9s%@",
+                             (f.label as NSString).utf8String!,
+                             Double(f.sizeBytes) / 1_073_741_824,
+                             (ram as NSString).utf8String!,
+                             ("\(fit)" as NSString).utf8String!,
+                             (f.isSplit ? " [split]" : "") + mark))
+            }
+            guard pick != nil else { fail("no recommendation produced") }
+            guard pick?.isSplit == false else { fail("recommended a split file") }
+            print("SMOKE PASS (hf-quants)")
+            exit(0)
+        } catch {
+            fail("quant listing error: \(error)")
+        }
+    }
+    RunLoop.main.run()
+}
+
 /// `llamaboard-smoke --hf-search [query]` exercises the live hub search only.
 if arguments.contains("--hf-search") {
     let query = arguments.last.flatMap { $0 == "--hf-search" ? nil : $0 } ?? ""

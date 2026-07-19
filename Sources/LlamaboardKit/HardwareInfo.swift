@@ -44,6 +44,61 @@ public enum HardwareInfo {
         return .tooLarge
     }
 
+    /// Preference order when several quantizations fit, best-regarded first.
+    /// Q4_K_M leads because it's the community's quality/size/speed sweet spot;
+    /// inference is memory-bandwidth bound, so a bigger quant is also a slower
+    /// one on the same machine.
+    private static let quantPreference = [
+        "Q4_K_M", "Q4_K_S", "Q5_K_M", "Q5_K_S", "Q6_K", "Q8_0",
+        "Q4_0", "IQ4_XS", "Q3_K_L", "Q3_K_M", "IQ3_M", "Q3_K_S", "Q2_K",
+    ]
+
+    /// Pick the quantization to recommend for this machine.
+    ///
+    /// Rules, in order:
+    /// 1. Ignore split archives and (unless nothing else exists) full-precision
+    ///    files — rarely what someone running locally wants.
+    /// 2. If even the largest option is small next to the memory budget, take
+    ///    it: extra quality costs nothing on a model this size.
+    /// 3. Otherwise take the best-regarded option that still fits comfortably.
+    /// 4. If nothing fits, suggest the smallest so there's always an answer.
+    ///
+    /// This is a *pre-download* estimate: the true KV-cache size depends on
+    /// GGUF metadata that can't be read until the file is on disk.
+    public static func recommendedQuant(from files: [HFHub.QuantFile],
+                                        contextTokens: UInt64) -> HFHub.QuantFile? {
+        let usable = files.filter { !$0.isSplit && $0.sizeBytes > 0 }
+        guard !usable.isEmpty else { return nil }
+
+        let fullPrecision: Set<String> = ["F32", "F16", "BF16"]
+        let quantized = usable.filter { file in
+            guard let quant = file.quant else { return true }
+            return !fullPrecision.contains(quant)
+        }
+        let candidates = quantized.isEmpty ? usable : quantized
+
+        let comfortable = candidates.filter {
+            fit(fileSize: UInt64($0.sizeBytes), metadata: nil, contextTokens: contextTokens) == .fits
+        }
+        guard !comfortable.isEmpty else {
+            return candidates.min { $0.sizeBytes < $1.sizeBytes }
+        }
+
+        // Rule 2: everything is comfortably small — quality is effectively free.
+        if let largest = comfortable.max(by: { $0.sizeBytes < $1.sizeBytes }),
+           UInt64(largest.sizeBytes) < gpuBudget / 4 {
+            return largest
+        }
+
+        // Rule 3: best-regarded quant that fits.
+        for preferred in quantPreference {
+            if let match = comfortable.first(where: { $0.quant == preferred }) {
+                return match
+            }
+        }
+        return comfortable.max { $0.sizeBytes < $1.sizeBytes }
+    }
+
     /// Estimated RAM requirement string for display, e.g. "~6.8 GB".
     public static func estimatedRAM(fileSize: UInt64, metadata: GGUFMetadata?, contextTokens: UInt64) -> String {
         let kv = metadata.map { kvCacheBytes(metadata: $0, contextTokens: contextTokens) }

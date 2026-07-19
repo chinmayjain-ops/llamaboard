@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import LlamaboardKit
 
 @main
 struct LlamaboardApp: App {
@@ -109,6 +110,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     state.hubSearch.run(query: state.searchQuery, immediate: true)
                     for _ in 0..<60 where state.hubSearch.results.isEmpty && state.hubSearch.errorMessage == nil {
                         try? await Task.sleep(for: .milliseconds(250))
+                    }
+                }
+
+                // --quant-picker <repo>: open the picker for a specific repo.
+                if let pickerIndex = CommandLine.arguments.firstIndex(of: "--quant-picker"),
+                   CommandLine.arguments.count > pickerIndex + 1 {
+                    let repo = CommandLine.arguments[pickerIndex + 1]
+                    let state = AppState.shared
+                    state.section = .discover
+                    if let files = try? await HFHub.quantFiles(repo: repo) {
+                        state.quantPickerPreload = files
+                        state.quantPickerTarget = HFSearchResult(
+                            repo: repo, author: repo.split(separator: "/").first.map(String.init) ?? "",
+                            downloads: 0, likes: 0, gated: false, pipelineTag: "text-generation",
+                            lastModified: nil, ggufFiles: files.map(\.fileName))
+                        capture("QuantPicker")
+                        state.quantPickerTarget = nil
+                        state.quantPickerPreload = nil
                     }
                 }
 

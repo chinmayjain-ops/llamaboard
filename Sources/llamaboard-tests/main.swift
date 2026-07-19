@@ -246,6 +246,90 @@ expectThrows("search: malformed payload rejected") {
     _ = try HFHub.parseSearchResults(Data("not json".utf8))
 }
 
+// MARK: Quant tag extraction from filenames
+expect(HFHub.quantTag(fromFileName: "Model-Q4_K_M.gguf") == "Q4_K_M", "quant tag: standard")
+expect(HFHub.quantTag(fromFileName: "SmolLM2-135M-Instruct-Q8_0.gguf") == "Q8_0",
+       "quant tag: model name digits ignored")
+expect(HFHub.quantTag(fromFileName: "Model-Q4_0_4_4.gguf") == "Q4_0_4_4",
+       "quant tag: ARM variant kept distinct from Q4_0")
+expect(HFHub.quantTag(fromFileName: "Model-Q2_K_L.gguf") == "Q2_K_L",
+       "quant tag: _L variant not collapsed to Q2_K")
+expect(HFHub.quantTag(fromFileName: "Model-Q3_K_XL.gguf") == "Q3_K_XL",
+       "quant tag: variant outside llama.cpp's ftype list")
+expect(HFHub.quantTag(fromFileName: "Model-IQ3_XXS.gguf") == "IQ3_XXS", "quant tag: IQ family")
+expect(HFHub.quantTag(fromFileName: "BF16/Model-BF16-00001-of-00002.gguf") == "BF16",
+       "quant tag: split file in a subfolder")
+expect(HFHub.quantTag(fromFileName: "Qwen3-model.gguf") == nil,
+       "quant tag: 'Qwen3' is not mistaken for a quant")
+expect(HFHub.quantTag(fromFileName: "plain-model.gguf") == nil, "quant tag: none present")
+
+// MARK: Quantization file listing (?blobs=true payload)
+do {
+    let fixture = """
+    {
+      "id": "acme/Model-GGUF",
+      "siblings": [
+        {"rfilename": "README.md", "size": 1000},
+        {"rfilename": "Model-Q4_K_M.gguf", "size": 4370000000},
+        {"rfilename": "Model-Q8_0.gguf", "size": 7700000000},
+        {"rfilename": "Model-Q2_K.gguf", "size": 1200000000},
+        {"rfilename": "Model-F16.gguf", "size": 15000000000},
+        {"rfilename": "BF16/Model-BF16-00001-of-00002.gguf", "size": 46000000000},
+        {"rfilename": "BF16/Model-BF16-00002-of-00002.gguf", "size": 3500000000}
+      ]
+    }
+    """
+    let files = try HFHub.parseQuantFiles(Data(fixture.utf8))
+    expect(files.count == 5, "quants: non-GGUF skipped and split shards collapsed to one entry")
+    expect(files.map(\.sizeBytes) == files.map(\.sizeBytes).sorted(), "quants: sorted smallest first")
+    expect(files.first?.quant == "Q2_K", "quants: smallest is Q2_K")
+    expect(files.first(where: { $0.quant == "Q4_K_M" })?.sizeBytes == 4_370_000_000, "quants: size parsed")
+    expect(files.contains { $0.isSplit }, "quants: split file retained but flagged")
+    expect(files.filter { $0.isSplit }.count == 1, "quants: only the first shard is listed")
+    expect(files.first(where: { $0.isSplit })?.fileName.contains("-00001-of-") == true,
+           "quants: the retained shard is the first one")
+
+    let pick = HardwareInfo.recommendedQuant(from: files, contextTokens: 4096)
+    expect(pick != nil, "quants: a recommendation is always produced")
+    expect(pick?.isSplit == false, "quants: never recommends a split file")
+    expect(pick?.quant != "F16", "quants: prefers a quantized file over full precision")
+
+    // With a large model relative to the budget, the sweet-spot quant wins
+    // over merely "the biggest that fits" — bigger quants are also slower.
+    let bigModel = [
+        HFHub.QuantFile(fileName: "M-Q4_K_M.gguf", quant: "Q4_K_M",
+                        sizeBytes: Int64(HardwareInfo.gpuBudget / 3), isSplit: false),
+        HFHub.QuantFile(fileName: "M-Q5_K_M.gguf", quant: "Q5_K_M",
+                        sizeBytes: Int64(Double(HardwareInfo.gpuBudget) * 0.42), isSplit: false),
+    ]
+    expect(HardwareInfo.recommendedQuant(from: bigModel, contextTokens: 4096)?.quant == "Q4_K_M",
+           "quants: prefers Q4_K_M over a larger quant on a sizeable model")
+
+    // Nothing fits: still suggest the smallest rather than nothing.
+    let oversized = [
+        HFHub.QuantFile(fileName: "H-Q4_K_M.gguf", quant: "Q4_K_M",
+                        sizeBytes: Int64(HardwareInfo.totalMemory * 2), isSplit: false),
+        HFHub.QuantFile(fileName: "H-Q2_K.gguf", quant: "Q2_K",
+                        sizeBytes: Int64(HardwareInfo.totalMemory * 3 / 2), isSplit: false),
+    ]
+    expect(HardwareInfo.recommendedQuant(from: oversized, contextTokens: 4096)?.quant == "Q2_K",
+           "quants: falls back to the smallest when nothing fits")
+
+    // With only full-precision options available, one is still recommended.
+    let f16Only = files.filter { $0.quant == "F16" }
+    expect(HardwareInfo.recommendedQuant(from: f16Only, contextTokens: 4096)?.quant == "F16",
+           "quants: falls back to full precision when nothing else exists")
+    expect(HardwareInfo.recommendedQuant(from: [], contextTokens: 4096) == nil,
+           "quants: empty list yields no recommendation")
+} catch {
+    failures += 1
+    print("FAIL  quant file parsing threw: \(error)")
+}
+
+expectThrows("quants: malformed payload rejected") {
+    _ = try HFHub.parseQuantFiles(Data("[]".utf8))
+}
+
 // MARK: HF command parsing
 expect(HFCommandParser.parse("llama serve -hf GnLOLot/MiniCPM5-1B-Claude-Opus-Fable5-Thinking-GGUF:Q4_K_M")
        == HFModelRef(repo: "GnLOLot/MiniCPM5-1B-Claude-Opus-Fable5-Thinking-GGUF", quant: "Q4_K_M"),

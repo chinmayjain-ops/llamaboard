@@ -268,19 +268,36 @@ private struct HubResultRow: View {
                 .foregroundStyle(Theme.systemGreen)
                 .padding(.horizontal, 12).padding(.vertical, 7)
         } else {
-            Button {
-                Task { await app.downloads.start(input: result.repo) }
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.down.circle.fill").font(.system(size: 12))
-                    Text("Download").font(.bodySm.weight(.bold))
+            HStack(spacing: 6) {
+                // Repos with more than one quant get the picker; single-file
+                // repos would just show one row, so download straight away.
+                if result.quantTags.count > 1 {
+                    Button { app.quantPickerTarget = result } label: {
+                        HStack(spacing: 5) {
+                            Text("Choose quant").font(.bodySm.weight(.bold))
+                            Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+                        }
+                        .foregroundStyle(Theme.onPrimary)
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .background(Theme.primary, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Compare sizes and memory fit for every quantization")
+                } else {
+                    Button {
+                        Task { await app.downloads.start(input: result.repo) }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.down.circle.fill").font(.system(size: 12))
+                            Text("Download").font(.bodySm.weight(.bold))
+                        }
+                        .foregroundStyle(Theme.onPrimary)
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .background(Theme.primary, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .foregroundStyle(Theme.onPrimary)
-                .padding(.horizontal, 12).padding(.vertical, 7)
-                .background(Theme.primary, in: Capsule())
             }
-            .buttonStyle(.plain)
-            .help("Downloads the recommended quantization (Q4_K_M when available)")
         }
     }
 
