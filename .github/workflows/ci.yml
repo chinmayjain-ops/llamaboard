@@ -9,19 +9,20 @@ on:
 jobs:
   build-and-test:
     name: Build and Test
-    runs-on: macos-14
+    # macos-15 ships Xcode 16.x / Swift 6, which this package requires.
+    runs-on: macos-15
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
-      - name: Select Xcode Version
-        run: sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
 
       - name: Show Swift Version
         run: swift --version
 
       - name: Build Project
-        run: swift build -c release
+        run: swift build
 
+      # Assert-based unit tests: GGUF parsing, settings, HF command parsing,
+      # Hermes config rewriting, fits-check. The end-to-end smoke test is not
+      # run here — it needs a llama.cpp install and a real GGUF.
       - name: Run Unit Tests
         run: swift run llamaboard-tests
