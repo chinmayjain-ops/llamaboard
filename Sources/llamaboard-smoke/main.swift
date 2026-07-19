@@ -16,6 +16,31 @@ func fail(_ message: String) -> Never {
 
 let arguments = CommandLine.arguments
 
+/// `llamaboard-smoke --hf-search [query]` exercises the live hub search only.
+if arguments.contains("--hf-search") {
+    let query = arguments.last.flatMap { $0 == "--hf-search" ? nil : $0 } ?? ""
+    Task { @MainActor in
+        do {
+            for sort in HFSortOrder.allCases {
+                let results = try await HFHub.search(query: query, sort: sort, limit: 5)
+                guard !results.isEmpty else { fail("no results for sort=\(sort.rawValue)") }
+                print("── sort=\(sort.label) (\(results.count) results)")
+                for r in results.prefix(3) {
+                    let quants = r.quantTags.prefix(4).joined(separator: ",")
+                    print("   \(r.repo) — \(r.downloads) dl, \(r.ggufFiles.count) gguf" +
+                          "\(r.gated ? ", GATED" : "")\(r.isSplitOnly ? ", SPLIT" : "")" +
+                          "\(quants.isEmpty ? "" : " [\(quants)]")")
+                }
+            }
+            print("SMOKE PASS (hf-search)")
+            exit(0)
+        } catch {
+            fail("hub search error: \(error)")
+        }
+    }
+    RunLoop.main.run()
+}
+
 @MainActor
 func run() async {
     // 1. Locate a model

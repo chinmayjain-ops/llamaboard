@@ -8,6 +8,7 @@ import LlamaboardKit
 /// arrives in beta 2.
 struct DiscoverView: View {
     @EnvironmentObject var app: AppState
+    @Environment(\.isSnapshot) private var isSnapshot
     @State private var pasted = ""
     @FocusState private var pasteFocused: Bool
 
@@ -19,6 +20,7 @@ struct DiscoverView: View {
                 if !app.downloads.items.isEmpty {
                     downloadsList
                 }
+                searchResults
                 howTo
             }
             .frame(maxWidth: 760)
@@ -26,15 +28,70 @@ struct DiscoverView: View {
             .padding(.top, 96)
             .padding(.bottom, 24)
         }
+        .onAppear { app.hubSearch.loadIfNeeded() }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Discover Models").font(.headlineLg).foregroundStyle(Theme.onSurface)
-            Text("Paste a llama.cpp command, owner/repo:QUANT, or Hugging Face link to download a GGUF straight into your library.")
+            Text("Search Hugging Face from the toolbar, or paste a llama.cpp command to download a GGUF straight into your library.")
                 .font(.bodyMd).foregroundStyle(Theme.onSurfaceVariant)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: Hub search results
+
+    private var searchResults: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                MonoLabel(app.searchQuery.isEmpty ? "Popular GGUF Models" : "Results")
+                if app.hubSearch.isSearching {
+                    ProgressView().controlSize(.small)
+                }
+                Spacer()
+                HStack(spacing: 4) {
+                    ForEach(HFSortOrder.allCases) { order in
+                        sortChip(order)
+                    }
+                }
+            }
+
+            if let error = app.hubSearch.errorMessage {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.systemOrange)
+                    Text(error).font(.bodySm).foregroundStyle(Theme.onSurfaceVariant)
+                    Spacer()
+                }
+                .padding(12)
+                .background(Theme.systemOrange.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+            } else if app.hubSearch.results.isEmpty && !app.hubSearch.isSearching {
+                Text(app.searchQuery.isEmpty
+                     ? "No results yet."
+                     : "No GGUF repositories match “\(app.searchQuery)”.")
+                    .font(.bodySm).foregroundStyle(Theme.onSurfaceVariant)
+                    .padding(.vertical, 20)
+                    .frame(maxWidth: .infinity)
+            } else {
+                // Snapshot rendering can't scroll, so show a readable slice.
+                ForEach(isSnapshot ? Array(app.hubSearch.results.prefix(4)) : app.hubSearch.results) { result in
+                    HubResultRow(result: result)
+                }
+            }
+        }
+    }
+
+    private func sortChip(_ order: HFSortOrder) -> some View {
+        let isOn = app.hubSearch.sort == order
+        return Button { app.hubSearch.sort = order } label: {
+            Text(order.label)
+                .font(.system(size: 11, weight: isOn ? .bold : .regular))
+                .foregroundStyle(isOn ? Theme.onPrimary : Theme.onSurfaceVariant)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(isOn ? AnyShapeStyle(Theme.primary) : AnyShapeStyle(Theme.surfaceContainerHigh),
+                            in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: Paste box
@@ -121,6 +178,131 @@ struct DiscoverView: View {
             Text(text).font(.bodySm).foregroundStyle(Theme.onSurfaceVariant)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+// MARK: - Hub result row
+
+/// One Hugging Face repository in the search results.
+private struct HubResultRow: View {
+    @EnvironmentObject var app: AppState
+    let result: HFSearchResult
+    @State private var hovering = false
+
+    private var alreadyInLibrary: Bool {
+        // Quant tags vary, so match on the repo name appearing in a local file.
+        app.library.models.contains { $0.displayName.localizedCaseInsensitiveContains(result.name) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        Text(result.name).font(.bodyMd.weight(.bold)).foregroundStyle(Theme.onSurface)
+                            .lineLimit(1).truncationMode(.middle)
+                        if result.gated {
+                            badge("GATED", Theme.systemOrange)
+                        }
+                        if !result.isLikelyChatModel, let tag = result.pipelineTag {
+                            badge(tag.uppercased(), Theme.outline)
+                        }
+                    }
+                    Text(result.author).font(.bodySm).foregroundStyle(Theme.onSurfaceVariant)
+                }
+                Spacer()
+                downloadButton
+            }
+
+            HStack(spacing: 12) {
+                stat("arrow.down.circle", compact(result.downloads))
+                stat("heart", compact(result.likes))
+                stat("doc", "\(result.ggufFiles.count) GGUF")
+                if let modified = result.lastModified {
+                    stat("clock", modified.formatted(.relative(presentation: .numeric)))
+                }
+            }
+
+            if !result.quantTags.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(result.quantTags.prefix(6), id: \.self) { quant in
+                        Text(quant)
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(Theme.onSurfaceVariant)
+                            .padding(.horizontal, 6).padding(.vertical, 3)
+                            .background(Theme.surfaceContainer, in: RoundedRectangle(cornerRadius: 4))
+                    }
+                    if result.quantTags.count > 6 {
+                        Text("+\(result.quantTags.count - 6)")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(Theme.onSurfaceVariant.opacity(0.7))
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .glassPanel(cornerRadius: 14, fill: hovering ? Theme.glassFillHi : Theme.glassFill)
+        .onHover { hovering = $0 }
+    }
+
+    @ViewBuilder
+    private var downloadButton: some View {
+        if result.gated {
+            Button {
+                NSWorkspace.shared.open(URL(string: "https://huggingface.co/\(result.repo)")!)
+            } label: {
+                Text("Accept license ↗").font(.bodySm)
+                    .foregroundStyle(Theme.systemOrange)
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(Theme.systemOrange.opacity(0.12), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("This repository requires accepting its license on Hugging Face first")
+        } else if result.isSplitOnly {
+            Text("Split file").font(.bodySm)
+                .foregroundStyle(Theme.onSurfaceVariant.opacity(0.7))
+                .padding(.horizontal, 12).padding(.vertical, 7)
+                .help("Only multi-part GGUFs are published here — not supported yet")
+        } else if alreadyInLibrary {
+            Text("In library").font(.bodySm)
+                .foregroundStyle(Theme.systemGreen)
+                .padding(.horizontal, 12).padding(.vertical, 7)
+        } else {
+            Button {
+                Task { await app.downloads.start(input: result.repo) }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.down.circle.fill").font(.system(size: 12))
+                    Text("Download").font(.bodySm.weight(.bold))
+                }
+                .foregroundStyle(Theme.onPrimary)
+                .padding(.horizontal, 12).padding(.vertical, 7)
+                .background(Theme.primary, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("Downloads the recommended quantization (Q4_K_M when available)")
+        }
+    }
+
+    private func badge(_ text: String, _ color: Color) -> some View {
+        Text(text).font(.system(size: 8, weight: .bold, design: .monospaced))
+            .foregroundStyle(color)
+            .padding(.horizontal, 5).padding(.vertical, 2)
+            .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
+    }
+
+    private func stat(_ symbol: String, _ text: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: symbol).font(.system(size: 10))
+            Text(text).font(.system(size: 10, design: .monospaced))
+        }
+        .foregroundStyle(Theme.onSurfaceVariant)
+    }
+
+    private func compact(_ n: Int) -> String {
+        if n >= 1_000_000 { return String(format: "%.1fM", Double(n) / 1_000_000) }
+        if n >= 1_000 { return String(format: "%.1fk", Double(n) / 1_000) }
+        return "\(n)"
     }
 }
 

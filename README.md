@@ -39,7 +39,8 @@ Llamaboard is the third option:
 ## What it does
 
 - 📚 **Model Library** — scans a folder of plain GGUF files, parses headers natively (architecture, params, quant, context, layers) *without loading the model*, with search, size/parameter/fit filters, and a Fits-VRAM badge per model based on your unified memory.
-- ⬇️ **Paste-to-download** — paste the `llama serve -hf owner/repo:QUANT` command straight from any Hugging Face model page (or a bare repo ref, or the page URL) and Llamaboard resolves the right GGUF — same quant-matching rules as llama.cpp — and downloads it into your library with progress, speed, ETA, and pause/resume/cancel.
+- 🔎 **Search Hugging Face** — browse GGUF repositories from the toolbar (trending / downloads / likes / recent), with download counts, available quantizations, gated-license and split-file warnings, and one-click download.
+- ⬇️ **Paste-to-download** — or paste the `llama serve -hf owner/repo:QUANT` command straight from any Hugging Face model page (a bare repo ref or page URL works too) and Llamaboard resolves the right GGUF — same quant-matching rules as llama.cpp — with progress, speed, ETA, and pause/resume/cancel.
 - 🎛 **Per-model settings** — context size, temperature, full sampler set (top-k/top-p/min-p/repeat penalty), system prompt, GPU layers, KV-cache types, flash attention, port, plus a free-text escape hatch for any other flag. Stored as human-readable JSON. The UI tells you which settings apply live and which need a model restart.
 - ⚡️ **One-click serve** — spawns and supervises `llama-server` (Metal), with health checks, live logs, and guaranteed teardown — no orphaned processes, ever.
 - 💬 **Built-in chat** — a calm fixed-height indicator while the model generates, then the full answer rendered once, with real metrics per reply: tokens/sec, token count, time-to-first-token. No jumping transcripts.
@@ -48,7 +49,7 @@ Llamaboard is the third option:
 - 🚀 **App Control** — launches companion apps pre-wired to your local endpoint. Hermes gets configured *automatically* (Llamaboard rewrites its provider config, with a backup); any custom app or CLI can be added.
 
 <div align="center">
-<img src="docs/screenshots/library.png" width="410" alt="Model Library" /> <img src="docs/screenshots/discover-download.png" width="410" alt="Paste-to-download" />
+<img src="docs/screenshots/library.png" width="410" alt="Model Library" /> <img src="docs/screenshots/discover-search.png" width="410" alt="Hugging Face search" />
 <img src="docs/screenshots/server.png" width="410" alt="Server telemetry" /> <img src="docs/screenshots/apps.png" width="410" alt="App Control" />
 <img src="docs/screenshots/settings.png" width="410" alt="Settings" />
 </div>
@@ -84,7 +85,8 @@ We'd rather under-promise. Everything below is labeled by how it was verified.
 |---|---|
 | GGUF header parsing | Architecture, name, params (from tensor table), quant, context length, layers — unit-tested against synthetic and real files (SmolLM2, Gemma) |
 | Library management | Folder scan + live file watching, import via Open panel, delete with confirmation, relocatable models folder (Settings) |
-| Search & filters | Live text search plus a filter popover (file size, parameter count, fits-in-memory) with active-filter badge and combined empty states |
+| Library search & filters | Live text search plus a filter popover (file size, parameter count, fits-in-memory) with active-filter badge and combined empty states |
+| Hugging Face search | Debounced, cached hub search with four sort orders — live-verified against the real API; results show downloads, likes, GGUF count, available quants, gated and split-file warnings |
 | Paste-to-download | Parsed `llama serve -hf repo:QUANT` verbatim from HF's dialog → resolved via the hub API → 144 MB download completed with live progress/speed/ETA, pause/resume/cancel, auto-import into the Library |
 | Settings profiles | Per-model JSON persistence, restart-vs-live distinction with an explicit "server is running with X — restart to apply Y" notice, context slider clamped to model max |
 | Inspector tabs | Model (memory/config/telemetry), Inference (full sampler set + system prompt editor), System (hardware, endpoint, paths) |
@@ -95,13 +97,14 @@ We'd rather under-promise. Everything below is labeled by how it was verified.
 | App Control: Hermes | Detection, launch, and **automatic provider configuration** (`~/.hermes/config.yaml` rewrite with backup) — confirmed end-to-end with inference through the local model |
 | Model alias | `/v1/models` advertises a clean model name via `--alias` |
 | Branding | Stitch-designed llama glass icon as Dock icon + sidebar mark |
-| Test suite | 42 assert-based unit test checks + a headless smoke test (parse → serve → chat → measured-telemetry checks → teardown) |
+| Test suite | 58 assert-based unit test checks + a headless smoke test (parse → serve → chat → measured-telemetry checks → teardown) |
 
 ### ⚠️ Present but NOT yet confirmed / known limitations
 
 | Area | Status |
 |---|---|
-| Hub browsing | Discover handles paste-to-download; *searching/browsing* Hugging Face inside the app is the next milestone |
+| Hub search | Works (live-verified across all four sort orders). Results come from `filter=gguf`, which occasionally includes non-chat repos — the pipeline tag is shown so you can tell. No pagination yet: 30 results per query |
+| Gated repos | Detected and labeled, with a link to accept the license on HF — but downloading them needs an HF token, which isn't implemented yet |
 | Split GGUFs | Multi-part model files (`-00001-of-000NN`) are detected and refused with a clear error — downloading them isn't supported yet |
 | Bench tab | **Sample data** — llama-bench integration planned (the binary detection is already there) |
 | Chat persistence | Conversations are **in-memory only** — quitting the app loses them (SQLite persistence is planned) |
@@ -118,7 +121,7 @@ We'd rather under-promise. Everything below is labeled by how it was verified.
 
 Driven by [PRD.md](PRD.md) — the full product spec lives in the repo and is part of the project.
 
-- [ ] **Beta 2:** Hugging Face hub search/browse in Discover (quant picker with RAM recommendations), split-GGUF downloads, chat persistence (SQLite), bundled llama.cpp runtime with in-app updates
+- [ ] **Beta 2:** quantization picker with per-file sizes and RAM fit, HF token for gated repos, split-GGUF downloads, chat persistence (SQLite), bundled llama.cpp runtime with in-app updates
 - [ ] **v1.0:** Bench panel (llama-bench UI with history), menu bar mode, signed + notarized `.app`, per-conversation setting overrides, "copy as command"
 - [ ] **Later:** multimodal (mmproj), LoRA adapters, multiple concurrent models, LAN serving, MLX backend
 
@@ -133,6 +136,7 @@ Sources/
 │   ├── ChatClient        #   SSE streaming client
 │   ├── ModelSettings     #   profiles → llama-server flags
 │   ├── HFDownload        #   -hf command parser, hub resolver, download manager
+│   ├── HFSearch          #   hub search + result parsing
 │   ├── HardwareInfo      #   unified-memory fits-check
 │   └── HermesIntegration #   companion-app config writer
 ├── Llamaboard/           # SwiftUI app (Tahoe "Liquid Glass" design)

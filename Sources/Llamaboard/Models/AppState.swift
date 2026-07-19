@@ -16,6 +16,7 @@ final class AppState: ObservableObject {
     let settingsStore = SettingsStore()
     let companionApps = CompanionAppsManager()
     let downloads: DownloadManager
+    let hubSearch = HubSearch()
 
     // MARK: Persisted app preferences
     private enum PrefKey {
@@ -69,6 +70,13 @@ final class AppState: ObservableObject {
         server.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &cancellables)
         companionApps.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &cancellables)
         downloads.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &cancellables)
+        hubSearch.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &cancellables)
+        // The top-bar field searches Hugging Face while Discover is open;
+        // elsewhere it filters the local library.
+        $searchQuery.sink { [weak self] query in
+            guard let self, self.section == .discover else { return }
+            self.hubSearch.run(query: query)
+        }.store(in: &cancellables)
         // Downloads land in whatever folder the library currently points at.
         library.$directory.sink { [weak self] dir in self?.downloads.destinationDirectory = dir }.store(in: &cancellables)
         // Auto-select the first model once the initial scan lands.

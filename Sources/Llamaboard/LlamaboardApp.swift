@@ -101,6 +101,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     FileHandle.standardError.write(Data("[llamaboard] download result: \(status)\n".utf8))
                 }
 
+                // --hf-query <q>: run a live hub search before capturing Discover.
+                if let hfIndex = CommandLine.arguments.firstIndex(of: "--hf-query"),
+                   CommandLine.arguments.count > hfIndex + 1 {
+                    let state = AppState.shared
+                    state.searchQuery = CommandLine.arguments[hfIndex + 1]
+                    state.hubSearch.run(query: state.searchQuery, immediate: true)
+                    for _ in 0..<60 where state.hubSearch.results.isEmpty && state.hubSearch.errorMessage == nil {
+                        try? await Task.sleep(for: .milliseconds(250))
+                    }
+                }
+
                 // --search <query>: pre-fill the search field to verify filtering.
                 if let queryIndex = CommandLine.arguments.firstIndex(of: "--search"),
                    CommandLine.arguments.count > queryIndex + 1 {

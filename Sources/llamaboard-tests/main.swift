@@ -172,6 +172,80 @@ do {
     print("FAIL  settings store threw: \(error)")
 }
 
+// MARK: HF search parsing (fixture mirrors a real /api/models?full=true payload)
+do {
+    let fixture = """
+    [
+      {
+        "id": "bartowski/SmolLM2-135M-Instruct-GGUF",
+        "author": "bartowski",
+        "downloads": 12345,
+        "likes": 67,
+        "gated": false,
+        "pipeline_tag": "text-generation",
+        "lastModified": "2025-01-02T11:59:48.000Z",
+        "siblings": [
+          {"rfilename": "README.md"},
+          {"rfilename": "SmolLM2-135M-Instruct-Q4_K_M.gguf"},
+          {"rfilename": "SmolLM2-135M-Instruct-Q8_0.gguf"}
+        ]
+      },
+      {
+        "id": "meta-llama/Llama-3.2-1B-Instruct",
+        "author": "meta-llama",
+        "downloads": 999,
+        "likes": 10,
+        "gated": "manual",
+        "pipeline_tag": "text-generation",
+        "lastModified": "2025-06-01T00:00:00.000Z",
+        "siblings": [{"rfilename": "model-Q4_K_M.gguf"}]
+      },
+      {
+        "id": "someone/embeddings-only",
+        "author": "someone",
+        "downloads": 5,
+        "likes": 0,
+        "gated": false,
+        "pipeline_tag": "feature-extraction",
+        "siblings": [{"rfilename": "big-BF16-00001-of-00002.gguf"}, {"rfilename": "big-BF16-00002-of-00002.gguf"}]
+      },
+      {
+        "id": "someone/no-gguf-here",
+        "author": "someone",
+        "downloads": 1,
+        "likes": 0,
+        "siblings": [{"rfilename": "config.json"}]
+      }
+    ]
+    """
+    let results = try HFHub.parseSearchResults(Data(fixture.utf8))
+    expect(results.count == 3, "search: repos without a GGUF are dropped")
+
+    let first = results[0]
+    expect(first.repo == "bartowski/SmolLM2-135M-Instruct-GGUF", "search: repo id parsed")
+    expect(first.name == "SmolLM2-135M-Instruct-GGUF", "search: name strips owner")
+    expect(first.author == "bartowski", "search: author parsed")
+    expect(first.downloads == 12345 && first.likes == 67, "search: counts parsed")
+    expect(first.gated == false, "search: boolean gated parsed")
+    expect(first.quantTags == ["Q4_K_M", "Q8_0"], "search: quant tags derived from filenames")
+    expect(first.isSplitOnly == false, "search: non-split repo detected")
+    expect(first.isLikelyChatModel, "search: text-generation is a chat model")
+    expect(first.lastModified != nil, "search: fractional-seconds date parsed")
+
+    expect(results[1].gated == true, "search: string gated (\"manual\") treated as gated")
+    expect(results[2].isSplitOnly, "search: split-only repo detected")
+    expect(results[2].isLikelyChatModel == false, "search: feature-extraction flagged as non-chat")
+} catch {
+    failures += 1
+    print("FAIL  search parsing threw: \(error)")
+}
+
+expect(HFSortOrder.trending.apiValue == "trendingScore", "search: trending maps to trendingScore")
+expect(HFSortOrder.recent.apiValue == "lastModified", "search: recent maps to lastModified")
+expectThrows("search: malformed payload rejected") {
+    _ = try HFHub.parseSearchResults(Data("not json".utf8))
+}
+
 // MARK: HF command parsing
 expect(HFCommandParser.parse("llama serve -hf GnLOLot/MiniCPM5-1B-Claude-Opus-Fable5-Thinking-GGUF:Q4_K_M")
        == HFModelRef(repo: "GnLOLot/MiniCPM5-1B-Claude-Opus-Fable5-Thinking-GGUF", quant: "Q4_K_M"),
